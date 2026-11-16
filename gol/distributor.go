@@ -96,9 +96,24 @@ func distributor(p Params, c distributorChannels) {
 		CompletedTurns: turn,
 		Alive:          calculateAliveCells(world, p.ImageWidth, p.ImageHeight),
 	}
+
+	outFilename := fmt.Sprintf("%dx%dx%d", p.ImageWidth, p.ImageHeight, turn)
+	c.ioCommand <- ioOutput
+	c.ioFilename <- outFilename
+	for y := 0; y < p.ImageHeight; y++ {
+		for x := 0; x < p.ImageWidth; x++ {
+			c.ioOutput <- world[y][x]
+		}
+	}
+
 	// Make sure that the Io has finished any output before exiting.
 	c.ioCommand <- ioCheckIdle
 	<-c.ioIdle
+
+	c.events <- ImageOutputComplete{
+		CompletedTurns: turn,
+		Filename:       outFilename,
+	}
 
 	c.events <- StateChange{
 		turn, Quitting}
