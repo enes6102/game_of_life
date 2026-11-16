@@ -42,7 +42,35 @@ func distributor(p Params, c distributorChannels) {
 
 	// TODO: Execute all turns of the Game of Life.
 	for turn < p.Turns {
-		world = calculateNextState(world, p.ImageWidth, p.ImageHeight)
+		//world = calculateNextState(world, p.ImageWidth, p.ImageHeight)
+		//turn++
+		channels := make([]chan [][]byte, p.Threads)
+
+		base := p.ImageHeight / p.Threads
+		remainder := p.ImageHeight % p.Threads
+		startY := 0
+
+		for i := 0; i < p.Threads; i++ {
+			rows := base
+			if i < remainder {
+				rows++ // first 'remainder' workers take one extra row
+			}
+			endY := startY + rows
+
+			channels[i] = make(chan [][]byte)
+			go worker(world, startY, endY, p.ImageWidth, p.ImageHeight, channels[i])
+
+			startY = endY
+		}
+
+		// collect strips .in order. and glue them together
+		newWorld := make([][]byte, 0, p.ImageHeight)
+		for i := 0; i < p.Threads; i++ {
+			strip := <-channels[i]
+			newWorld = append(newWorld, strip...)
+		}
+
+		world = newWorld
 		turn++
 	}
 
@@ -81,31 +109,29 @@ func countAliveNeighbours(world [][]byte, x, y, width, height int) int {
 }
 
 // calculateNextState builds a brand-new world from the old one.
-func calculateNextState(world [][]byte, width, height int) [][]byte {
-	newWorld := make([][]byte, height)
-	for i := range newWorld {
-		newWorld[i] = make([]byte, width)
+func calculateNextState(world [][]byte, startY, endY, width, height int) [][]byte {
+	strip := make([][]byte, endY-startY)
+	for i := range strip {
+		strip[i] = make([]byte, width)
 	}
 
-	for y := 0; y < height; y++ {
+	for y := startY; y < endY; y++ {
 		for x := 0; x < width; x++ {
 			n := countAliveNeighbours(world, x, y, width, height)
-			if world[y][x] == 255 {
-				if n == 2 || n == 3 {
-					newWorld[y][x] = 255
-				} else {
-					newWorld[y][x] = 0
-				}
+			alive := world[y][x] == 255
+			if (alive && (n == 2 || n == 3)) || (!alive && n == 3) {
+				strip[y-startY][x] = 255
 			} else {
-				if n == 3 {
-					newWorld[y][x] = 255
-				} else {
-					newWorld[y][x] = 0
-				}
+				strip[y-startY][x] = 0
 			}
 		}
 	}
-	return newWorld
+	return strip
+}
+
+// worker computes one strip and sends it back on its own channel.
+func worker(world [][]byte, startY, endY, width, height int, out chan<- [][]byte) {
+	out <- calculateNextState(world, startY, endY, width, height)
 }
 
 // calculateAliveCells returns the coordinates of every alive cell.
