@@ -15,6 +15,7 @@ type distributorChannels struct {
 	ioFilename chan<- string
 	ioOutput   chan<- uint8
 	ioInput    <-chan uint8
+	keyPresses <-chan rune // step 5
 }
 
 // distributor divides the work between workers and interacts with other goroutines.
@@ -46,7 +47,8 @@ func distributor(p Params, c distributorChannels) {
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop() // stops ticker when distributor returns so it doesnt keep running in the background
 
-	for turn < p.Turns {
+	quit := false
+	for turn < p.Turns && !quit {
 		//world = calculateNextState(world, p.ImageWidth, p.ImageHeight)
 		//turn++
 		channels := make([]chan [][]byte, p.Threads)
@@ -71,22 +73,30 @@ func distributor(p Params, c distributorChannels) {
 		// collect strips .in order. and glue them together
 		newWorld := make([][]byte, 0, p.ImageHeight)
 		for i := 0; i < p.Threads; i++ {
-			strip := <-channels[i]
-			newWorld = append(newWorld, strip...)
+			newWorld = append(newWorld, <-channels[i]...)
 		}
 
 		world = newWorld
 		turn++
 
-		//step 3:
+		//step 3 + 5:
 		select {
 		case <-ticker.C:
 			c.events <- AliveCellsCount{
 				CompletedTurns: turn,
 				CellsCount:     countAlive(world),
 			}
+		case key := <-c.keyPresses:
+			switch key {
+			case 's':
+				saveImage(p, c, world, turn)
+			case 'q':
+				quit = true
+			case 'p':
+				quit = pause(p, c, world, turn)
+			}
 		default:
-			//no tick yet so carry on
+			//carry on
 		}
 
 	}
@@ -97,23 +107,7 @@ func distributor(p Params, c distributorChannels) {
 		Alive:          calculateAliveCells(world, p.ImageWidth, p.ImageHeight),
 	}
 
-	outFilename := fmt.Sprintf("%dx%dx%d", p.ImageWidth, p.ImageHeight, turn)
-	c.ioCommand <- ioOutput
-	c.ioFilename <- outFilename
-	for y := 0; y < p.ImageHeight; y++ {
-		for x := 0; x < p.ImageWidth; x++ {
-			c.ioOutput <- world[y][x]
-		}
-	}
-
-	// Make sure that the Io has finished any output before exiting.
-	c.ioCommand <- ioCheckIdle
-	<-c.ioIdle
-
-	c.events <- ImageOutputComplete{
-		CompletedTurns: turn,
-		Filename:       outFilename,
-	}
+	saveImage(p, c, world, turn)
 
 	c.events <- StateChange{
 		turn, Quitting}
@@ -189,4 +183,36 @@ func countAlive(world [][]byte) int {
 		}
 	}
 	return count
+}
+
+func saveImage(p Params, c distributorChannels, world [][]byte, turn int) {
+	filename := fmt.Sprintf("%dx%dx%d", p.ImageWidth, p.ImageHeight, turn)
+
+	c.ioCommand <- ioOutput
+	c.ioFilename <- filename
+	for y := 0; y < p.ImageHeight; y++ {
+		for x := 0; x < p.ImageWidth; x++ {
+			c.ioOutput <- world[y][x]
+		}
+	}
+
+	c.ioCommand <- ioCheckIdle
+	<-c.ioIdle
+
+	c.events <- ImageOutputComplete{CompletedTurns: turn, Filename: filename}
+}
+
+func pause(p Params, c distributorChannels, world [][]byte, turn int) bool {
+	c.events <- StateChange{turn, Paused}
+	for {
+		switch <-c.keyPresses {
+		case 's':
+			saveImage(p, c, world, turn)
+		case 'q':
+			return true
+		case 'p':
+			c.events <- StateChange{turn, Executing}
+			return false
+		}
+	}
 }
