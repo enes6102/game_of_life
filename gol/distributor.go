@@ -2,6 +2,7 @@ package gol
 
 import (
 	"fmt"
+	"time"
 
 	"uk.ac.bris.cs/gameoflife/util"
 )
@@ -41,6 +42,10 @@ func distributor(p Params, c distributorChannels) {
 	c.events <- StateChange{turn, Executing}
 
 	// TODO: Execute all turns of the Game of Life.
+	//step 3
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop() // stops ticker when distributor returns so it doesnt keep running in the background
+
 	for turn < p.Turns {
 		//world = calculateNextState(world, p.ImageWidth, p.ImageHeight)
 		//turn++
@@ -72,6 +77,18 @@ func distributor(p Params, c distributorChannels) {
 
 		world = newWorld
 		turn++
+
+		//step 3:
+		select {
+		case <-ticker.C:
+			c.events <- AliveCellsCount{
+				CompletedTurns: turn,
+				CellsCount:     countAlive(world),
+			}
+		default:
+			//no tick yet so carry on
+		}
+
 	}
 
 	// TODO: Report the final state using FinalTurnCompleteEvent.
@@ -145,4 +162,16 @@ func calculateAliveCells(world [][]byte, width, height int) []util.Cell {
 		}
 	}
 	return alive
+}
+
+func countAlive(world [][]byte) int {
+	count := 0
+	for _, row := range world {
+		for _, cell := range row {
+			if cell == 255 {
+				count++
+			}
+		}
+	}
+	return count
 }
