@@ -41,21 +41,16 @@ func distributor(p Params, c distributorChannels) {
 	c.events <- StateChange{turn, Executing}
 
 	// TODO: Execute all turns of the Game of Life.
-	for i := 0; i < p.Turns; i++ {
-		//for j := 0; j < world[
-		//var current_cell := world[]
-		// game rules
-		// for ALIVE:
-		// neighbours < 2 -> dies
-		// neighbours =2 or 3 -> nohing
-		// neighbours > 3 -> dies
-		// for DEAD:
-		// neighbours = 3 _
-
+	for turn < p.Turns {
+		world = calculateNextState(world, p.ImageWidth, p.ImageHeight)
+		turn++
 	}
 
 	// TODO: Report the final state using FinalTurnCompleteEvent.
-
+	c.events <- FinalTurnComplete{
+		CompletedTurns: turn,
+		Alive:          calculateAliveCells(world, p.ImageWidth, p.ImageHeight),
+	}
 	// Make sure that the Io has finished any output before exiting.
 	c.ioCommand <- ioCheckIdle
 	<-c.ioIdle
