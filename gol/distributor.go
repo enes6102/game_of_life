@@ -2,8 +2,10 @@ package gol
 
 import (
 	"fmt"
+	"net/rpc"
 	"time"
 
+	"uk.ac.bris.cs/gameoflife/stubs"
 	"uk.ac.bris.cs/gameoflife/util"
 )
 
@@ -52,67 +54,18 @@ func distributor(p Params, c distributorChannels) {
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop() // stops ticker when distributor returns so it doesnt keep running in the background
 
-	quit := false
-	for turn < p.Turns && !quit {
-		//world = calculateNextState(world, p.ImageWidth, p.ImageHeight)
-		//turn++
-		channels := make([]chan workerResult, p.Threads)
-
-		base := p.ImageHeight / p.Threads
-		remainder := p.ImageHeight % p.Threads
-		startY := 0
-
-		for i := 0; i < p.Threads; i++ {
-			rows := base
-			if i < remainder {
-				rows++ // first 'remainder' workers take one extra row
-			}
-			endY := startY + rows
-
-			channels[i] = make(chan workerResult)
-			go worker(world, startY, endY, p.ImageWidth, p.ImageHeight, channels[i])
-
-			startY = endY
-		}
-
-		// collect strips .in order. and glue them together
-		newWorld := make([][]byte, 0, p.ImageHeight)
-		var flipped []util.Cell
-		for i := 0; i < p.Threads; i++ {
-			res := <-channels[i]
-			newWorld = append(newWorld, res.strip...)
-			flipped = append(flipped, res.flipped...)
-		}
-
-		world = newWorld
-		turn++
-
-		if len(flipped) > 0 {
-			c.events <- CellsFlipped{CompletedTurns: turn, Cells: flipped}
-		}
-		c.events <- TurnComplete{CompletedTurns: turn}
-
-		//step 3 + 5:
-		select {
-		case <-ticker.C:
-			c.events <- AliveCellsCount{
-				CompletedTurns: turn,
-				CellsCount:     countAlive(world),
-			}
-		case key := <-c.keyPresses:
-			switch key {
-			case 's':
-				saveImage(p, c, world, turn)
-			case 'q':
-				quit = true
-			case 'p':
-				quit = pause(p, c, world, turn)
-			}
-		default:
-			//carry on
-		}
-
+	client, err := rpc.Dial("tcp", "54.89.14.29:8030")
+	if err != nil {
+		panic(err)
 	}
+	defer client.Close()
+
+	req := stubs.Request{World: world, Width: p.ImageWidth, Height: p.ImageHeight, Turns: p.Turns}
+	res := new(stubs.Response)
+	client.Call(stubs.EvolveHandler, req, res) //blocks until all turns are done
+
+	world = res.World
+	turn = res.CompletedTurns
 
 	// TODO: Report the final state using FinalTurnCompleteEvent.
 	c.events <- FinalTurnComplete{
