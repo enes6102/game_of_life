@@ -62,7 +62,29 @@ func distributor(p Params, c distributorChannels) {
 
 	req := stubs.Request{World: world, Width: p.ImageWidth, Height: p.ImageHeight, Turns: p.Turns}
 	res := new(stubs.Response)
-	client.Call(stubs.EvolveHandler, req, res) //blocks until all turns are done
+	evolveCall := client.Go(stubs.EvolveHandler, req, res, nil) // non-blocking
+
+	running := true
+	for running {
+		select {
+		case <-evolveCall.Done:
+			if evolveCall.Error != nil {
+				panic(evolveCall.Error)
+			}
+			running = false
+		case <-ticker.C:
+			aliveRes := new(stubs.AliveResponse)
+			err := client.Call(stubs.AliveHandler, stubs.AliveRequest{}, aliveRes)
+			if err != nil {
+				panic(err)
+			}
+			c.events <- AliveCellsCount{
+				CompletedTurns: aliveRes.CompletedTurns,
+				CellsCount:     aliveRes.CellsCount,
+			}
+		}
+
+	}
 
 	world = res.World
 	turn = res.CompletedTurns

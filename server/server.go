@@ -4,14 +4,24 @@ import (
 	"flag"
 	"net"
 	"net/rpc"
+	"sync"
 
 	"uk.ac.bris.cs/gameoflife/stubs"
 	"uk.ac.bris.cs/gameoflife/util"
 )
 
-type GolOperations struct{}
+type GolOperations struct {
+	mu    sync.Mutex
+	world [][]byte
+	turn  int
+}
 
 func (g *GolOperations) Evolve(req stubs.Request, res *stubs.Response) (err error) {
+	g.mu.Lock()
+	g.world = req.World
+	g.turn = 0
+	g.mu.Unlock()
+
 	world := req.World
 	turn := 0
 	for ; turn < req.Turns; turn++ {
@@ -21,6 +31,7 @@ func (g *GolOperations) Evolve(req stubs.Request, res *stubs.Response) (err erro
 	res.World = world
 	res.CompletedTurns = turn
 	return nil
+
 	//if len(flipped) > 0 {
 	//	c.events <- CellsFlipped{CompletedTurns: turn, Cells: flipped}
 	//}
@@ -45,6 +56,26 @@ func (g *GolOperations) Evolve(req stubs.Request, res *stubs.Response) (err erro
 	//default:
 	//	//carry on
 	//}
+}
+
+func (g *GolOperations) AliveCount(req stubs.AliveRequest, res *stubs.AliveResponse) (err error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	res.CompletedTurns = g.turn
+	res.CellsCount = countAlive(g.world)
+	return nil
+}
+
+func countAlive(world [][]byte) int {
+	count := 0
+	for _, row := range world {
+		for _, cell := range row {
+			if cell == 255 {
+				count++
+			}
+		}
+	}
+	return count
 }
 
 func main() {
@@ -101,9 +132,4 @@ func calculateNextState(world [][]byte, startY, endY, width, height int) workerR
 		}
 	}
 	return workerResult{strip: strip, flipped: flipped}
-}
-
-// worker computes one strip and sends it back on its own channel.
-func worker(world [][]byte, startY, endY, width, height int, out chan<- workerResult) {
-	out <- calculateNextState(world, startY, endY, width, height)
 }
