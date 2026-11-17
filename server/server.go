@@ -27,6 +27,11 @@ func (g *GolOperations) Evolve(req stubs.Request, res *stubs.Response) (err erro
 	for ; turn < req.Turns; turn++ {
 		// split into req.threads strips, start workers, glue strips into newworld
 		world = calculateNextState(world, 0, req.Height, req.Width, req.Height).strip
+
+		g.mu.Lock()
+		g.world = world
+		g.turn = turn + 1
+		g.mu.Unlock()
 	}
 	res.World = world
 	res.CompletedTurns = turn
