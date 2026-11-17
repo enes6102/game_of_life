@@ -4,39 +4,47 @@ import (
 	"flag"
 	"net"
 	"net/rpc"
+	"os"
 	"sync"
+	"time"
 
 	"uk.ac.bris.cs/gameoflife/stubs"
 	"uk.ac.bris.cs/gameoflife/util"
 )
 
 type GolOperations struct {
-	mu    sync.Mutex
-	world [][]byte
-	turn  int
+	mu     sync.Mutex
+	cond   *sync.Cond
+	world  [][]byte
+	turn   int
+	paused bool
+	quit   bool
 }
 
 func (g *GolOperations) Evolve(req stubs.Request, res *stubs.Response) (err error) {
 	g.mu.Lock()
-	g.world = req.World
-	g.turn = 0
+	g.world, g.turn, g.paused, g.quit = req.World, 0, false, false
 	g.mu.Unlock()
 
-	world := req.World
-	turn := 0
-	for ; turn < req.Turns; turn++ {
-		// split into req.threads strips, start workers, glue strips into newworld
-		world = calculateNextState(world, 0, req.Height, req.Width, req.Height).strip
+	for {
+		g.mu.Lock()
+		for g.paused && !g.quit {
+			g.cond.Wait() // unlocks mu while waiting
+		}
+		if g.quit || g.turn >= req.Turns {
+			res.World, res.CompletedTurns = g.world, g.turn
+			g.mu.Unlock()
+			return nil
+		}
+		world := g.world
+		g.mu.Unlock()
+		next := calculateNextState(world, 0, req.Height, req.Width, req.Height).strip
 
 		g.mu.Lock()
-		g.world = world
-		g.turn = turn + 1
+		g.world = next
+		g.turn++
 		g.mu.Unlock()
 	}
-	res.World = world
-	res.CompletedTurns = turn
-	return nil
-
 	//if len(flipped) > 0 {
 	//	c.events <- CellsFlipped{CompletedTurns: turn, Cells: flipped}
 	//}
@@ -83,10 +91,47 @@ func countAlive(world [][]byte) int {
 	return count
 }
 
+func (g *GolOperations) GetWorld(req stubs.Empty, res *stubs.WorldResponse) (err error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	res.World, res.Turn = g.world, g.turn
+	return nil
+}
+
+func (g *GolOperations) Pause(req stubs.Empty, res *stubs.PauseResponse) (err error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.paused = !g.paused
+	if !g.paused {
+		g.cond.Broadcast()
+	}
+	res.Paused, res.Turn = g.paused, g.turn
+	return nil
+}
+
+func (g *GolOperations) Quit(req stubs.Empty, res *stubs.Empty) (err error) {
+	g.mu.Lock()
+	g.quit = true
+	g.cond.Broadcast() // wake evolve if paused
+	g.mu.Unlock()
+	return nil
+}
+
+func (g *GolOperations) Kill(req stubs.Empty, res *stubs.Empty) (err error) {
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		os.Exit(0)
+	}()
+	return nil
+}
+
 func main() {
 	port := flag.String("port", "8030", "port to listen on")
 	flag.Parse()
-	rpc.Register(&GolOperations{})
+	g := &GolOperations{}
+	g.cond = sync.NewCond(&g.mu)
+	rpc.Register(g)
+
 	ln, _ := net.Listen("tcp", ":"+*port)
 	defer ln.Close()
 	rpc.Accept(ln)

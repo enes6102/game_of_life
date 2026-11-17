@@ -65,6 +65,7 @@ func distributor(p Params, c distributorChannels) {
 	evolveCall := client.Go(stubs.EvolveHandler, req, res, nil) // non-blocking
 
 	running := true
+	kill := false
 	for running {
 		select {
 		case <-evolveCall.Done:
@@ -81,6 +82,40 @@ func distributor(p Params, c distributorChannels) {
 			c.events <- AliveCellsCount{
 				CompletedTurns: aliveRes.CompletedTurns,
 				CellsCount:     aliveRes.CellsCount,
+			}
+		case key := <-c.keyPresses:
+			switch key {
+			case 's':
+				w := new(stubs.WorldResponse)
+				err := client.Call(stubs.GetWorldHandler, stubs.Empty{}, w)
+				if err != nil {
+					panic(err)
+				}
+			case 'q':
+				err := client.Call(stubs.QuitHandler, stubs.Empty{}, new(stubs.Empty))
+				if err != nil {
+					return
+				}
+				// evolv now returns, the done case ends the loop
+			case 'k':
+				kill = true
+				err := client.Call(stubs.QuitHandler, stubs.Empty{}, new(stubs.Empty))
+				if err != nil {
+					return
+				}
+			case 'p':
+				pr := new(stubs.PauseResponse)
+				err := client.Call(stubs.PauseHandler, stubs.Empty{}, pr)
+				if err != nil {
+					return
+				}
+				if pr.Paused {
+					fmt.Println("Paused at turn", pr.Turn)
+					c.events <- StateChange{pr.Turn, Paused}
+				} else {
+					fmt.Println("Continuing")
+					c.events <- StateChange{pr.Turn, Executing}
+				}
 			}
 		}
 
@@ -99,6 +134,10 @@ func distributor(p Params, c distributorChannels) {
 
 	c.events <- StateChange{
 		turn, Quitting}
+
+	if kill {
+		client.Call(stubs.KillHandler, stubs.Empty{}, new(stubs.Empty))
+	}
 
 	// Close the channel to stop the SDL goroutine gracefully. Removing may cause deadlock.
 	close(c.events)
