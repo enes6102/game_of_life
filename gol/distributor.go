@@ -7,7 +7,6 @@ import (
 	"uk.ac.bris.cs/gameoflife/util"
 )
 
-// file to change
 type distributorChannels struct {
 	events     chan<- Event
 	ioCommand  chan<- ioCommand
@@ -27,7 +26,7 @@ func distributor(p Params, c distributorChannels) {
 	for i := range world {
 		world[i] = make([]byte, p.ImageWidth)
 	}
-	// read pgm and make the world
+
 	c.ioCommand <- ioInput
 	c.ioFilename <- fmt.Sprintf("%dx%d", p.ImageWidth, p.ImageHeight)
 
@@ -36,8 +35,6 @@ func distributor(p Params, c distributorChannels) {
 			world[y][x] = <-c.ioInput
 		}
 	}
-
-	// read pgm and make the world
 
 	turn := 0
 	// step 6: tell SDL which cells start alive
@@ -54,8 +51,6 @@ func distributor(p Params, c distributorChannels) {
 
 	quit := false
 	for turn < p.Turns && !quit {
-		//world = calculateNextState(world, p.ImageWidth, p.ImageHeight)
-		//turn++
 		channels := make([]chan workerResult, p.Threads)
 
 		base := p.ImageHeight / p.Threads
