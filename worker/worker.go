@@ -2,7 +2,6 @@ package main
 
 import (
 	"flag"
-	"fmt"
 	"net"
 	"net/rpc"
 	"os"
@@ -21,8 +20,6 @@ type Worker struct {
 // Update computes the next state of the strip in req.Rows.
 // req.Rows[0] and req.Rows[len-1] are halo rows: they are read but not returned.
 func (w *Worker) Update(req stubs.WorkerRequest, res *stubs.WorkerResponse) (err error) {
-	host, _ := os.Hostname()
-	fmt.Printf("[%s] got %d rows\n", host, len(req.Rows)-2)
 	rows, width := req.Rows, req.Width
 	n := len(rows) - 2 // number of real rows this worker owns
 

@@ -29,7 +29,6 @@ func distributor(p Params, c distributorChannels) {
 	for i := range world {
 		world[i] = make([]byte, p.ImageWidth)
 	}
-	// read pgm and make the world
 	c.ioCommand <- ioInput
 	c.ioFilename <- fmt.Sprintf("%dx%d", p.ImageWidth, p.ImageHeight)
 
@@ -38,8 +37,6 @@ func distributor(p Params, c distributorChannels) {
 			world[y][x] = <-c.ioInput
 		}
 	}
-
-	// read pgm and make the world
 
 	turn := 0
 	// step 6: tell SDL which cells start alive
@@ -144,59 +141,6 @@ func distributor(p Params, c distributorChannels) {
 	close(c.events)
 }
 
-// countAliveNeighbours counts the 8 surrounding cells, wrapping at the edges.
-func countAliveNeighbours(world [][]byte, x, y, width, height int) int {
-	count := 0
-	for dy := -1; dy <= 1; dy++ {
-		for dx := -1; dx <= 1; dx++ {
-			if dx == 0 && dy == 0 {
-				continue // skip the cell itself
-			}
-			nx := (x + dx + width) % width   // wrap horizontally
-			ny := (y + dy + height) % height // wrap vertically
-			if world[ny][nx] == 255 {
-				count++
-			}
-		}
-	}
-	return count
-}
-
-type workerResult struct {
-	strip   [][]byte
-	flipped []util.Cell
-}
-
-func calculateNextState(world [][]byte, startY, endY, width, height int) workerResult {
-	strip := make([][]byte, endY-startY)
-	for i := range strip {
-		strip[i] = make([]byte, width)
-	}
-
-	var flipped []util.Cell
-
-	for y := startY; y < endY; y++ {
-		for x := 0; x < width; x++ {
-			n := countAliveNeighbours(world, x, y, width, height)
-			alive := world[y][x] == 255
-			var next byte
-			if (alive && (n == 2 || n == 3)) || (!alive && n == 3) {
-				next = 255
-			}
-			strip[y-startY][x] = next
-			if next != world[y][x] {
-				flipped = append(flipped, util.Cell{X: x, Y: y})
-			}
-		}
-	}
-	return workerResult{strip: strip, flipped: flipped}
-}
-
-// worker computes one strip and sends it back on its own channel.
-func worker(world [][]byte, startY, endY, width, height int, out chan<- workerResult) {
-	out <- calculateNextState(world, startY, endY, width, height)
-}
-
 // calculateAliveCells returns the coordinates of every alive cell.
 func calculateAliveCells(world [][]byte, width, height int) []util.Cell {
 	var alive []util.Cell
@@ -208,18 +152,6 @@ func calculateAliveCells(world [][]byte, width, height int) []util.Cell {
 		}
 	}
 	return alive
-}
-
-func countAlive(world [][]byte) int {
-	count := 0
-	for _, row := range world {
-		for _, cell := range row {
-			if cell == 255 {
-				count++
-			}
-		}
-	}
-	return count
 }
 
 func saveImage(p Params, c distributorChannels, world [][]byte, turn int) {
@@ -237,19 +169,4 @@ func saveImage(p Params, c distributorChannels, world [][]byte, turn int) {
 	<-c.ioIdle
 
 	c.events <- ImageOutputComplete{CompletedTurns: turn, Filename: filename}
-}
-
-func pause(p Params, c distributorChannels, world [][]byte, turn int) bool {
-	c.events <- StateChange{turn, Paused}
-	for {
-		switch <-c.keyPresses {
-		case 's':
-			saveImage(p, c, world, turn)
-		case 'q':
-			return true
-		case 'p':
-			c.events <- StateChange{turn, Executing}
-			return false
-		}
-	}
 }
