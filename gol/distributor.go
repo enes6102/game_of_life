@@ -54,7 +54,7 @@ func distributor(p Params, c distributorChannels) {
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop() // stops ticker when distributor returns so it doesnt keep running in the background
 
-	client, err := rpc.Dial("tcp", "54.89.14.29:8030")
+	client, err := rpc.Dial("tcp", *brokerAddr)
 	if err != nil {
 		panic(err)
 	}
@@ -91,6 +91,7 @@ func distributor(p Params, c distributorChannels) {
 				if err != nil {
 					panic(err)
 				}
+				saveImage(p, c, w.World, w.Turn)
 			case 'q':
 				err := client.Call(stubs.QuitHandler, stubs.Empty{}, new(stubs.Empty))
 				if err != nil {
